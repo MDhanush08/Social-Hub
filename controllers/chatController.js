@@ -21,7 +21,7 @@ exports.getChatHistory = async (req, res) => {
 
 exports.generateText = async (req, res) => {
   try {
-    const { prompt, image } = req.body; // Frontend sends 'prompt' now (will update frontend)
+    const { prompt, image } = req.body;
     const userId = req.user.id;
 
     if (!prompt && !image) {
@@ -29,40 +29,56 @@ exports.generateText = async (req, res) => {
     }
 
     let contents = [];
-    if (prompt) contents.push({ text: prompt });
-    // Note: Simple image handling if supported by the simple user example. 
-    // If the user wants image support, we need to format it for GoogleGenAI.
-    // For now, assuming text-based as primary request, but allowing for expansion.
+    let parts = [];
 
-    // Adjusting input for gemini-2.5-flash which likely supports multimodal
-    // But sticking to the user's simple text sample for safety unless image is present.
-    let inputForGemini = prompt;
+    if (prompt) {
+      parts.push({ text: prompt });
+    }
 
     if (image) {
-      // If image is present, we might need a more complex structure, 
-      // but user's sample was text-only. I will stick to text for the call 
-      // to ensure the sample code works, or try to support basic text.
-      // For now, let's just send the text prompt to the model.
-      // If the user uploads an image, we'll just save it to history but maybe not send to AI 
-      // in this specific simple 'generateText' function unless we parse it.
+      // Image comes as data URL: "data:image/png;base64,..."
+      const base64Data = image.split(",")[1];
+      const mimeType = image.split(";")[0].split(":")[1];
+
+      parts.push({
+        inlineData: {
+          mimeType: mimeType,
+          data: base64Data
+        }
+      });
     }
+
+    // Add instruction for structure if it's an image call without a specific prompt from chips
+    // Or just let the model handle natural language.
+    // The user wants chips to be available. We can send them in the response metadata.
+
+    contents.push({ role: "user", parts: parts });
 
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents: inputForGemini
+      contents: contents
     });
 
-    // Robust text extraction to handle different SDK versions or response structures
+    // Extract text
     let aiText = "";
-    if (typeof response.text === 'function') {
+
+    // Log response for debugging if needed
+    // console.log("Gemini Response:", JSON.stringify(response, null, 2));
+
+    if (response.text && typeof response.text === 'function') {
       aiText = response.text();
-    } else if (response.text) {
+    } else if (typeof response.text === 'string') {
       aiText = response.text;
-    } else if (response.candidates?.[0]?.content?.parts?.[0]?.text) {
+    } else if (response.candidates && response.candidates[0] && response.candidates[0].content && response.candidates[0].content.parts && response.candidates[0].content.parts[0].text) {
       aiText = response.candidates[0].content.parts[0].text;
-    } else {
-      aiText = JSON.stringify(response); // Fallback debug
+    } else if (response.response && typeof response.response.text === 'function') {
+      aiText = response.response.text();
+    } else if (response.response && response.response.text) {
+      aiText = response.response.text;
+    } else if (response.response && response.response.candidates && response.response.candidates[0] && response.response.candidates[0].content && response.response.candidates[0].content.parts && response.response.candidates[0].content.parts[0].text) {
+      aiText = response.response.candidates[0].content.parts[0].text;
     }
+
 
     // --- Save to History ---
     let chat = await Chat.findOne({ userId });
@@ -71,7 +87,20 @@ exports.generateText = async (req, res) => {
     }
 
     const userMsg = { role: 'user', content: prompt || "Image Upload", image };
-    const aiMsg = { role: 'assistant', content: aiText };
+
+    // Determine if we should show chips. 
+    // If the user uploaded an image (or referenced one), we encourage these chips.
+    // We'll pass them in a 'data' field.
+    let chips = [];
+    if (image) {
+      chips = ["Title", "Keywords", "Enhance Image"];
+    }
+
+    const aiMsg = {
+      role: 'assistant',
+      content: aiText,
+      data: { chips: chips } // Store chips in the message data
+    };
 
     chat.messages.push(userMsg);
     chat.messages.push(aiMsg);
@@ -80,7 +109,6 @@ exports.generateText = async (req, res) => {
     // --- Respond ---
     res.json({
       reply: aiText,
-      // Sending back these mainly for the frontend to update UI immediately
       userMessage: userMsg,
       assistantMessage: aiMsg
     });
