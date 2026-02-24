@@ -5,41 +5,73 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY
 });
 
+// Get list of all chat sessions for the user (summaries for sidebar)
+
 exports.getChatHistory = async (req, res) => {
   try {
-    let chat = await Chat.findOne({ userId: req.user.id });
-    if (!chat) {
-      chat = new Chat({ userId: req.user.id, messages: [] });
-      await chat.save();
-    }
-    res.json(chat.messages);
+    const chats = await Chat.find({ userId: req.user.id })
+      .select('title createdAt updatedAt')
+      .sort({ updatedAt: -1 });
+
+    res.json(chats);
   } catch (err) {
     console.error("History Error:", err);
     res.status(500).json({ message: 'Error fetching chat history', error: err.message });
   }
 };
 
+// Get messages for a specific chat ID
+exports.getChatDetails = async (req, res) => {
+  try {
+    const chat = await Chat.findOne({ _id: req.params.id, userId: req.user.id });
+    if (!chat) {
+      return res.status(404).json({ message: 'Chat not found' });
+    }
+    res.json(chat.messages);
+  } catch (err) {
+    console.error("Details Error:", err);
+    res.status(500).json({ message: 'Error fetching chat details', error: err.message });
+  }
+};
+
 exports.generateText = async (req, res) => {
   try {
-    const { prompt, image } = req.body;
+    const { prompt, image, chatId } = req.body;
     const userId = req.user.id;
 
     if (!prompt && !image) {
       return res.status(400).json({ error: "Prompt or Image is required" });
     }
 
-    let contents = [];
-    let parts = [];
+    let chat;
+    if (chatId) {
+      chat = await Chat.findOne({ _id: chatId, userId });
+      if (!chat) {
+        return res.status(404).json({ error: "Chat session not found" });
+      }
+    }
 
+    // Build history for Gemini (if it's an existing chat)
+    let contents = [];
+    if (chat && chat.messages) {
+      // Take last few messages for context to keep it efficient
+      const recentMessages = chat.messages.slice(-10);
+      recentMessages.forEach(msg => {
+        contents.push({
+          role: msg.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: msg.content }]
+        });
+      });
+    }
+
+    let parts = [];
     if (prompt) {
       parts.push({ text: prompt });
     }
 
     if (image) {
-      // Image comes as data URL: "data:image/png;base64,..."
       const base64Data = image.split(",")[1];
       const mimeType = image.split(";")[0].split(":")[1];
-
       parts.push({
         inlineData: {
           mimeType: mimeType,
@@ -48,49 +80,37 @@ exports.generateText = async (req, res) => {
       });
     }
 
-    // Add instruction for structure if it's an image call without a specific prompt from chips
-    // Or just let the model handle natural language.
-    // The user wants chips to be available. We can send them in the response metadata.
-
     contents.push({ role: "user", parts: parts });
 
+    // Using the user's preferred new version method
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: contents
     });
 
-    // Extract text
+    // Extract text safely using the user's logic
     let aiText = "";
-
-    // Log response for debugging if needed
-    // console.log("Gemini Response:", JSON.stringify(response, null, 2));
-
-    if (response.text && typeof response.text === 'function') {
-      aiText = response.text();
-    } else if (typeof response.text === 'string') {
+    if (response.candidates?.length) {
+      aiText = response.candidates[0]?.content?.parts
+        ?.map(part => part.text)
+        ?.join("") || "";
+    } else if (typeof response.text === "string") {
       aiText = response.text;
-    } else if (response.candidates && response.candidates[0] && response.candidates[0].content && response.candidates[0].content.parts && response.candidates[0].content.parts[0].text) {
-      aiText = response.candidates[0].content.parts[0].text;
-    } else if (response.response && typeof response.response.text === 'function') {
-      aiText = response.response.text();
-    } else if (response.response && response.response.text) {
-      aiText = response.response.text;
-    } else if (response.response && response.response.candidates && response.response.candidates[0] && response.response.candidates[0].content && response.response.candidates[0].content.parts && response.response.candidates[0].content.parts[0].text) {
-      aiText = response.response.candidates[0].content.parts[0].text;
+    } else {
+      aiText = "No response from AI.";
     }
 
 
     // --- Save to History ---
-    let chat = await Chat.findOne({ userId });
     if (!chat) {
-      chat = new Chat({ userId, messages: [] });
+      // Create new chat session
+      // Simple title generation: first few words of prompt
+      let title = prompt ? (prompt.substring(0, 30) + (prompt.length > 30 ? "..." : "")) : "New Image Chat";
+      chat = new Chat({ userId, title, messages: [] });
     }
 
     const userMsg = { role: 'user', content: prompt || "Image Upload", image };
 
-    // Determine if we should show chips. 
-    // If the user uploaded an image (or referenced one), we encourage these chips.
-    // We'll pass them in a 'data' field.
     let chips = [];
     if (image) {
       chips = ["Title", "Keywords", "Enhance Image"];
@@ -99,7 +119,7 @@ exports.generateText = async (req, res) => {
     const aiMsg = {
       role: 'assistant',
       content: aiText,
-      data: { chips: chips } // Store chips in the message data
+      data: { chips: chips }
     };
 
     chat.messages.push(userMsg);
@@ -108,6 +128,8 @@ exports.generateText = async (req, res) => {
 
     // --- Respond ---
     res.json({
+      chatId: chat._id,
+      title: chat.title,
       reply: aiText,
       userMessage: userMsg,
       assistantMessage: aiMsg
@@ -118,3 +140,4 @@ exports.generateText = async (req, res) => {
     res.status(500).json({ error: "Gemini API failed" });
   }
 };
+
