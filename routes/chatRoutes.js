@@ -5,6 +5,7 @@ const auth = require('../middleware/auth');
 
 router.get('/history', auth, chatController.getChatHistory);
 router.get('/history/:id', auth, chatController.getChatDetails);
+router.delete('/history/:id', auth, chatController.deleteChat);
 router.post('/send', auth, chatController.generateText);
 
 module.exports = router;
