@@ -48,6 +48,38 @@ exports.deleteChat = async (req, res) => {
     res.status(500).json({ message: 'Error deleting chat', error: err.message });
   }
 };
+
+// Rename a specific chat session
+exports.renameChat = async (req, res) => {
+  try {
+    const { title } = req.body;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ message: 'Title is required' });
+    }
+
+    const chat = await Chat.findOneAndUpdate(
+      { _id: req.params.id, userId: req.user.id },
+      { $set: { title: title.trim() } },
+      { new: true }
+    ).select('_id title');
+
+
+
+
+    console.log("chat rename ---", chat);
+
+
+    if (!chat) {
+      return res.status(404).json({ message: 'Chat not found' });
+    }
+
+    res.json({ message: 'Chat renamed successfully', chat });
+  } catch (err) {
+    console.error("Rename Error:", err);
+    res.status(500).json({ message: 'Error renaming chat', error: err.message });
+  }
+};
 exports.generateText = async (req, res) => {
   try {
     const { prompt, image, chatId } = req.body;
