@@ -65,10 +65,7 @@ exports.renameChat = async (req, res) => {
     ).select('_id title');
 
 
-
-
     console.log("chat rename ---", chat);
-
 
     if (!chat) {
       return res.status(404).json({ message: 'Chat not found' });

@@ -1,5 +1,42 @@
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
+
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+exports.googleLogin = async (req, res) => {
+  try {
+    const { token: idToken } = req.body;
+    const ticket = await client.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const { email, name, sub: googleId, picture } = ticket.getPayload();
+
+    let user = await User.findOne({ email });
+
+    if (!user) {
+      user = new User({
+        username: name,
+        email,
+        googleId,
+        profilePic: picture,
+      });
+      await user.save();
+    } else if (!user.googleId) {
+      // If user exists by email but hasn't linked Google yet
+      user.googleId = googleId;
+      if (!user.profilePic) user.profilePic = picture;
+      await user.save();
+    }
+
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1d' });
+    res.status(200).json({ token, user: { id: user._id, username: user.username, email: user.email, profilePic: user.profilePic } });
+  } catch (error) {
+    console.error('Google login error:', error);
+    res.status(500).json({ message: 'Google authentication failed' });
+  }
+};
 
 exports.register = async (req, res) => {
   try {

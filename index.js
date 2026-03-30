@@ -4,16 +4,18 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const authRoutes = require('./routes/authRoutes');
 const chatRoutes = require('./routes/chatRoutes'); // Add this line
+const postRoutes = require('./routes/postRoutes');
 
 const app = express();
 
 // Middleware
-app.use(express.json({ limit: '10mb' })); // Increase limit for base64 images
+app.use(express.json({ limit: '50mb' })); // Increase limit for base64 images
 app.use(cors());
 
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes); // Add this line
+app.use('/api/posts', postRoutes);
 
 // Database Connection
 mongoose.connect(process.env.MONGODB_URI)
