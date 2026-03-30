@@ -1,8 +1,30 @@
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
-
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+exports.facebookAuthCallback = (req, res) => {
+  try {
+    const user = req.user; // populated by passport
+    if (!user) {
+      return res.redirect('http://localhost:4200/login?error=facebook_failed');
+    }
+
+    const jwtToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1d' });
+
+    const userData = encodeURIComponent(JSON.stringify({
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      profilePic: user.profilePic
+    }));
+
+    res.redirect(`http://localhost:4200/login?token=${jwtToken}&user=${userData}`);
+  } catch (error) {
+    console.error('Facebook callback error:', error);
+    res.redirect('http://localhost:4200/login?error=facebook_failed');
+  }
+};
 
 exports.googleLogin = async (req, res) => {
   try {

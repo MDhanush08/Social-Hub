@@ -2,15 +2,28 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const passport = require('passport');
+require('./config/passportSetup'); // Initialize passport config
+
 const authRoutes = require('./routes/authRoutes');
-const chatRoutes = require('./routes/chatRoutes'); // Add this line
+const chatRoutes = require('./routes/chatRoutes');
 const postRoutes = require('./routes/postRoutes');
 
 const app = express();
 
 // Middleware
-app.use(express.json({ limit: '50mb' })); // Increase limit for base64 images
+app.use(express.json({ limit: '50mb' }));
 app.use(cors());
+
+const session = require('express-session');
+app.use(session({
+  secret: process.env.JWT_SECRET || 'secret',
+  resave: false,
+  saveUninitialized: true
+}));
+
+// Initialize Passport
+app.use(passport.initialize());
 
 // Routes
 app.use('/api/auth', authRoutes);

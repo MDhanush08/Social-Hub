@@ -20,8 +20,11 @@
     "cors": "^2.8.6",
     "dotenv": "^17.2.4",
     "express": "^5.2.1",
+    "express-session": "^1.19.0",
     "google-auth-library": "^10.6.2",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.1.6"
+    "mongoose": "^9.1.6",
+    "passport": "^0.7.0",
+    "passport-facebook": "^3.0.0"
   }
 }
